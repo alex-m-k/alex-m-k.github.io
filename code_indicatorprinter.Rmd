@@ -1,18 +1,26 @@
 ---
-title: "Warehouse Industry and Occupation Indicators"
+title: "U.S. Warehouse Industry and Occupation Indicators"
 # author: Alex K
 # date: 2/4/2020
 output: html_document
+# latex_engine: xelatex
 ---
 
 ```{r setup, include=FALSE}
 
 # Global display options
 knitr::opts_chunk$set(message=FALSE, 
-tidy.opts=list(width.cutoff=60)) 
+                      idy.opts=list(width.cutoff=60),
+                      fig.align="center") 
+
+knitr::knit_hooks$set(inline = function(x) { 
+  if(!is.numeric(x)){ x }
+  else{prettyNum(round(x,2), big.mark=",") } })
 
 # Packages
 library(here)
+library(knitr)
+library(kableExtra)
 library(blscrapeR)
 library(ipumsr)
 library(ggplot2)
@@ -41,78 +49,253 @@ current_year <- substring(current_date, 1, 4)
 start_year <- 2009 # End of reccesion
 
 ```
-# Occupational Employment
 
-```{r load_data, include=FALSE}
+```{r load_cps, include=FALSE}
 ## Get occupational stats from IPUMS CPS
-#   Note: These files need to be regularly updated
 # Use basic CPS data for the month of December
-# NOTE: I have to add ".." because here() stops at Rproj - figure out how to fix
+#   Note: These files need to be regularly updated
+#   Note : I have to add ".." because here() stops at Rproj - figure out how to fix
 cps_data_file <- here("..", "..", "..", "..",
-                      "data", "supp_data", "ipums", "cps", "cps_00003.dat")
+                      "data", "supp_data", "ipums", "cps", "cps_00006.dat")
 cps_ddi_file <- here("..", "..", "..", "..",
-                     "data", "supp_data", "ipums", "cps", "cps_00003.xml")
+                     "data", "supp_data", "ipums", "cps", "cps_00006.xml")
 cps_ddi <- read_ipums_ddi(cps_ddi_file) 
 cps_data <- read_ipums_micro(cps_ddi_file, data_file = cps_data_file)
 
-# Create factor variables
+# CPS max year
+cps_max_year <- format(max(cps_data$YEAR), big.mark ="")
+
+
+# Get industry labels
+ind_lab_2009_file <- here("..", "..", "..", "..",
+                     "data", "supp_data", "ipums", "cps", 
+                     "data_ipumscps_industrycodes20092013.csv")
+ind_lab_2014_file <- here("..", "..", "..", "..",
+                     "data", "supp_data", "ipums", "cps", 
+                     "data_ipumscps_industrycodes2014.csv")
+
+ind_lab_2009 <- read.csv(ind_lab_2009_file,
+                         col.names = c("IND", 
+                                       "IND_factor"))
+ind_lab_2014 <- read.csv(ind_lab_2014_file,
+                         col.names = c("IND", 
+                                       "IND_factor"))
+ind_lab <- rbind(cbind(ind_lab_2009, "IND_year" = 2009),
+                 cbind(ind_lab_2014, "IND_year" = 2014))
+
+# Create occupation factor variables
 cps_data <- cps_data %>%
-  mutate(IND_factor = as_factor(IND),
-         OCC_factor = as_factor(OCC))
+  mutate(OCC_factor = as_factor(OCC),
+         OCC2010_factor = as_factor(OCC2010))
 
-# Occupational codes 
+# Create industry factor variables
+# To do this, I need to create industry code year variable
+cps_data$IND_year <- ifelse(cps_data$YEAR < 2014,
+                            2009,
+                            2014)
 
-# Industry codes
+cps_data <- merge(cps_data, ind_lab, 
+                  by = c("IND", "IND_year"))
+
+cps_data <-  cps_data[ , -which(names(cps_data) == "IND_year")]
+
 
 ```
+# Classifying warehouse work
 
-The below figures are based on occupational employment. They cut across industries. They do not include  self-employed, government, or agricultural workers. The following occupational SOC codes are included (Census code in italics; 2011 SOC codes in parentheses):
+There are many types of jobs within warehouses and warehouses can be found in many industries. This makes it challenging to create a snapshot of warehouse work in the U.S. Should we be looking at occupation or industry statistics? 
+
+If we look at occupation statistics, we are going to pick up those who perform typical warehouse roles, like stocking, in non-warehouse establishments, like grocery stores. If we look at industry statistics, namely, warehousing, we are going to pick up jobs that aren't usually carried out warehouses, like sales, and we are going to miss those who work in warehouses that have owners not classified as part of the industry. Amazon is the most notable example of the second problem; it is classified as belonging to the electronic shopping industry.
+
+Several studies provide estimates of who works in warehouses, but they do not go into detail about their classification method. 
+
+I propose that we look at the intersection of occupation and industry. In particular, we should look at the most common jobs within the warehousing industry. We should then compare these jobs to what we have observed in our visits to warehouses. Finally, we should look for other industries in which these jobs are common.
+
+The CPS will allow us to look at the industry-occupation intersection for individual workers, over time.
+
+Open questions:
+
+* On the CPS, does industry pertain to the establishment or headquarters of where the employee works? Likely, the answer is ambiguous. The ambiguity is important because we don't know if the warehouses of retailers, like Sigma, will be classified as belonging to the warehouse or retail industry. It is possible that the OES survey might be less ambiguous. The challenge with this survey is that we can't look at individual worker characteristics, and I am not sure if we can get historical data. One alternative would be to use the CPS for worker information (e.g., demographics) and for historical trends and the OES for a snapshot of employment in  the past year.
+
+## Most common occupations in the warehousing and storage industry (NAICS 493)
+
+We can start by looking in the most obvious place: the most common jobs in the warehousing industry. The below table aligns with what we might expect, given our warehouse visits. 
+
+```{r most_common_occupations, echo=FALSE}
+cps_data %>%
+  filter(EMPSTAT == 10 & 
+         CLASSWKR %in% c(20, 21, 22, 23) &
+         IND %in% c("6390") &
+         YEAR == max(YEAR)) %>%
+  group_by(OCC2010_factor) %>%
+  summarize(value = sum(WTFINL)) %>%
+  arrange(-value) %>%
+  top_n(10) %>%
+  kable(col.names = c("Occupation", "Total Employment"),
+        format.args = list(big.mark = ","),
+        digits = 2) %>%
+  kable_styling()
+  # Note: I created table with OCC and OCC2010, and there were no differences.
+
+```
+#### Note
+SOURCE. They do not include  self-employed, government, or agricultural workers. December 2019?
+
+Two questions arise.
+
+* One occupation that Sigma considers a warehouse role, machine feeders and offbearers, is missing from this list. I am electing to exclude it from our list of warehousing occupations, because the CPS shows that it is not very common in the warehousing industry. 
+
+* One managerial role makes the top. I believe we should include it because there are quite a few managers in the warehouses we visited, and many of them experience challenges similar to those of workers. If, however, we want to distinguish between workers and management (we can definitely contrast hourly vs. salaried employees), we can keep managers out.
+
+## Selection of occupations
+
+From the above table, we can select occupations to be used in the subsequent analyses. The following occupational SOC codes are included (Census code in italics; pre-2011 SOC codes in parentheses):
 
 * **53-7062**: Laborers and Freight, Stock, and Material Movers, Hand, *9620*
-* **53-7063**: Machine Feeders and Offbearers, *9630*
 * **53-7064**: Packers and Packagers, Hand, *9640*
 * **53-7065**: Stockers and Order Fillers, *5620* (43-5081)
 * **53-7051**: Industrial Truck and Tractor Operators, *9600*
 * **43-5071**: Shipping,  Receiving,  and  Traffic  Clerks, *5610*
+* **11-3071**: Transportation, Storage, and Distribution Managers, *0160*
 
-This occupational set is comparable but not identical to other studies of warehouse work, including Gutelius and Theodore (2019) and De Lara (2013). It is based on a comparison of these with Sigma's own benchmarks.
+This occupational set is comparable but not identical to other studies of warehouse work, including Gutelius and Theodore (2019) and De Lara (2013). 
 
-## Trend in occupational growth vs U.S. overall
+## Other industries with lots of warehouse jobs
+
+The next question is what other industries should be included? The below tables show industries that have lots of the jobs identified above.
+
+```{r occupations_industry_share, echo=FALSE}
+common_occupations <- cps_data %>%
+  filter(EMPSTAT == 10 & 
+         CLASSWKR %in% c(20, 21, 22, 23) &
+         IND %in% c("6390") &
+         YEAR == max(YEAR)) %>%
+  group_by(OCC2010_factor) %>%
+  summarize(value = sum(WTFINL)) %>%
+  top_n(6)
+
+# Which industries have the largest number of these jobs?
+cps_data %>%
+  filter(EMPSTAT == 10 & 
+         CLASSWKR %in% c(20, 21, 22, 23) &
+         YEAR == max(YEAR)) %>%
+  group_by(IND_factor) %>%
+    summarize(total_emp = sum(WTFINL),
+              occ_emp = sum(WTFINL[OCC2010_factor %in% common_occupations$OCC2010_factor])) %>%
+  arrange(-occ_emp) %>%
+  top_n(10) %>%
+  kable(col.names = c("Industry", "Total Employment", 
+                      "Warehousing Occupations Employment"),
+        format.args = list(big.mark = ","),
+        digits = 2,
+        caption = "Largest number of workers in most common warehousing occupations") %>%
+  kable_styling()
+
+# Which industries have the largest share of these jobs?
+cps_data %>%
+  filter(EMPSTAT == 10 & 
+         CLASSWKR %in% c(20, 21, 22, 23) &
+         YEAR == max(YEAR)) %>%
+  group_by(IND_factor) %>%
+    summarize(total_emp = sum(WTFINL),
+              occ_emp = sum(WTFINL[OCC2010_factor %in% common_occupations$OCC2010_factor]),
+              occ_share = occ_emp / total_emp) %>%
+  arrange(-occ_share) %>%
+  top_n(10) %>%
+  kable(col.names = c("Industry", "Total Employment", 
+                      "Warehousing Occupations Employment",
+                      "Warehousing Occupation Share"),
+        format.args = list(big.mark = ","),
+        digits = 2,
+        caption = "Largest share of workers in most common warehousing occupations") %>%
+  kable_styling()
+
+# Note: it's possible that pre 2012, electronic shopping (454111) and mail-order were separate (454113)
+
+```
+
+#### Note
+SOURCE. They do not include  self-employed, government, or agricultural workers. December 2019?
+
+## Selection of industries
+
+In addition to warehousing, two other industries stand out: electronic shopping and mail order houses. These are what we have in mind when we think of e-commerce and home delivery. I advocate including them. That said, there is reason to have a serious conversation about whether it makes sense to include anyone who performs the most occupations, regardless of industry. If a worker is filling orders, does it matter that they work in the tobacco industry? The following NAICS codes are included:
+
+* **493**: Warehousing and Storage
+* **4541**: Electronic Shopping and Mail-Order Houses
 
 ```{r occupational_trends, echo = FALSE}
 
-# All private employees
+# All private employees occupations
 occ_emp_tot <- cps_data %>%
-  # The goal is to self-employed and govt. workers
+  # Exclude self-employed and govt. workers
   #  as well as agricultural workers (low IND codes)
-  # Verify if this is good strategy
   filter(EMPSTAT == 10 & IND > 0300 & 
            CLASSWKR %in% c(20, 21, 22, 23)) %>%
   group_by(YEAR) %>%
-  summarize(value = sum(WTFINL))
+  summarize(value = sum(WTFINL),
+            value_000 = value / 1000)
+
+# Name occupations
+occ_emp_tot$ind <- "All Occupations"
 
 # Warehousing occupcations
-
 whocc_emp_tot <- cps_data %>%
   filter(EMPSTAT == 10 & 
            CLASSWKR %in% c(20, 21, 22, 23) &
-           OCC_factor %in% c("9600", "9620", "9630", 
+           OCC_factor %in% c("9600", "9620", "0160", 
                              "9640", "5610", "5620") &
-           # Only in warehousing, temp work, electronic shopping
-           IND_factor %in% c("6390", "7580", "5590")) %>%
+           # Only in warehousing, mail order, electronic shopping
+           IND %in% c("6390", "5592", "5590")) %>%
   group_by(YEAR) %>%
-  summarize(value = sum(WTFINL))
+  summarize(value = sum(WTFINL),
+            value_000 = value / 1000)
 
-# Total number of employees in warehousing occupations in 2009 vs. 2018
-cps_data %>%
-  filter(EMPSTAT == 10 & YEAR %in% c(2009, 2018) &
-           CLASSWKR %in% c(20, 21, 22, 23) &
-           OCC_factor %in% c("9600", "9620", "9630", 
-                             "9640", "5610", "5620") &
-           # Only in warehousing, temp work, 
-           IND_factor %in% c("6390", "7580", "5590")) %>%
-  group_by(YEAR) %>%
-  summarize(total = sum(WTFINL))
+# Name occupation
+whocc_emp_tot$ind <- "Warehousing occupations"
+
+# Employment in max year
+whocc_curr_emp <- round(whocc_emp_tot$value[whocc_emp_tot$YEAR == max(whocc_emp_tot$YEAR)], 0)
+
+# Employment in 2009
+whocc_2009_emp <- round(whocc_emp_tot$value[whocc_emp_tot$YEAR == 2009], 0)
+
+
+```
+# Snapshot of Warehouse employment
+
+## Trend in occupational growth vs U.S. overall
+
+With these occupations and industries in mind, we can look for trends in warehouse work employment.
+
+As of `r cps_max_year`, there were `r whocc_curr_emp` people working in warehouse jobs in the U.S. This is up from `r whocc_2009_emp` in 2009, after the recession ended.
+
+```{r employment_plot, echo=FALSE}
+# Plot trend in employment
+occ_growth_title <- paste0("Total employment levels in warehousing vs. all occupations  ", 
+                           start_year,
+                           " to ",
+                           max(whocc_emp_tot$YEAR))
+
+ggplot(rbind(occ_emp_tot, whocc_emp_tot),
+       aes(x = YEAR, 
+           y = value_000)) +
+  facet_grid(ind~., scale="free") + 
+  geom_line() +
+  labs(title = occ_growth_title,
+       x = "Date",
+       y = "All employees (thousands)") +
+  plot_theme
+```
+
+#### Note
+SOURCE. They do not include  self-employed, government, or agricultural workers.
+
+## Annual change in warehouse occupation employment
+
+Relative to the overall economy, warehouse has recently shown outsized growth.
+
+```{r annual_growth, echo = FALSE}
 
 # Calculate YoY % change since end of recession
 occ_emp_tot_agr <- occ_emp_tot %>%
@@ -123,44 +306,60 @@ whocc_emp_tot_agr <- whocc_emp_tot %>%
   arrange(-desc(YEAR)) %>%
   mutate(agr = (value / lag(value, 1)) - 1)
 
+agr_title <- paste0("Annual Growth in Warehousing vs. All Occupations Since  ", start_year)
+
 # Compare growth rate of all employees vs. warehousing
 occ_agr <- rbind(cbind(occ_emp_tot_agr[, c("YEAR", "agr")], "ind" = "all" ), 
              cbind(whocc_emp_tot_agr[, c("YEAR", "agr")], "ind" = "wh"))
-occ_agr <- subset(occ_agr, YEAR != 2009)
+occ_agr <- subset(occ_agr, YEAR != start_year)
 ggplot(occ_agr, aes(x=YEAR, y=agr, fill = ind)) +
   scale_y_continuous("YoY % Change in Employment Levels", labels = scales::percent) + 
   scale_x_continuous("Year", breaks = occ_agr$YEAR) + 
   geom_bar(stat = "identity", position = 'dodge') +
   scale_fill_manual(values = c("#A31F34", "#7570b3"),
-                    labels = c("Private Sector", "Warehousing")) +
-  labs(title = "U.S. Annual Growth in Warehousing Occupations vs. All Occupations Since the Recession", 
-       subtitle = "Warehousing: SOC 53-7051, 7062, 7063, 7064, 7065, 43-5071; All: Except self-employed, gov't, and ag workers",
-       caption = "Source: BLS CPS",
-       fill = "Industry") +
-  guides(linetype = FALSE) 
+                    labels = c("All", "Warehousing")) +
+  labs(title = agr_title, 
+       fill = "Occupations") +
+  guides(linetype = FALSE) +
+  plot_theme +
+  theme(legend.position="bottom") 
 
 ```
 
-### Source
+#### Note
+SOURCE. They do not include  self-employed, government, or agricultural workers.
 
-## Annual change in employment
+```{r temps, include = FALSE}
 
-## Industries with largest share of workers in these occupations
+# Jobs by occupation
+cps_data %>%
+  filter(EMPSTAT == 10 & 
+         CLASSWKR %in% c(20, 21, 22, 23) &
+         IND %in% c("7580") &
+         YEAR == max(YEAR) &
+         OCC2010_factor %in% common_occupations$OCC2010_factor) %>%
+  group_by(OCC2010_factor) %>%
+    summarize(occ_emp = sum(WTFINL)) %>%
+  arrange(-occ_emp)
 
-## Most common occupations in Warehousing and Storage Industry (NAICS 493)
+# Total temp jobs
+whocc_temp <- round(as.numeric(cps_data %>%
+  filter(EMPSTAT == 10 & 
+         CLASSWKR %in% c(20, 21, 22, 23) &
+         IND %in% c("7580") &
+         YEAR == max(YEAR) &
+         OCC2010_factor %in% common_occupations$OCC2010_factor) %>%
+    summarize(occ_emp = sum(WTFINL)), 2))
 
-## Where is Amazon?
-It is likely in NAICS 45411 (read Mandel?), though this number includes
+```
 
-## What happens if we add Amazon industry to NACIS 493?
+## Share of temp workers
 
-## Share of temps
+A question that comes up is whether these numbers are overlooking temp workers. Do temp workers make up a sizable share of the warehouse workforce?
 
-# Industry employment
+In `r cps_max_year`, there were `r whocc_temp` people employed in the temp industry (NAICS 5613) who carried out the common warehousing occupations identified above. If we add this number to the above total, `r whocc_temp + whocc_curr_emp` work in warehousing; `r (whocc_temp / (whocc_temp + whocc_curr_emp)) * 100`% of them are temps. In what follows, I exclude the temp industry because I am interested in pay and hours, but we could carry about separate analyses on permanent and temp workers.
 
-This displays *name*. It should update automatically.
-
-```{r, echo=FALSE, eval=FALSE}
+```{r industry_emp, include=FALSE}
 
 # Right now this isn't working because you only have liek 10 requests a day.
 # This means I need to download the file and save it once a month, automatically.
@@ -192,29 +391,311 @@ dateCast()
 wh_tot$date <- as.Date(emp_tot$date)
 
 # Name series
-emp_tot$name <- "Total private"
+wh_tot$name <- "Warehousing and storage"
+
+# Employment in max year
+wh_curr_emp <- round(wh_tot$value[wh_tot$year == max(wh_tot$year) & wh_tot$period == max(wh_tot$period)], 0) * 1000
+
+```
+
+## Industry employment
+
+We can also look at employment in the warehousing industry (NAICS 493) overall. This will include any jobs, all the way up to management, involved in warehousing.  
+
+When we do so, the total number of warehousing jobs comes out to `r wh_curr_emp`.
+
+```{r ind_plot, echo = FALSE}
+
+ind_agr_title <- paste0("Annual Growth in Warehousing vs. All Industries Since  ", start_year)
 
 ggplot(rbind(emp_tot, wh_tot),
        aes(x = date, 
            y = value)) +
   facet_grid(name~., scale="free") + 
   geom_line() +
-  labs(title = "Title",
+  labs(title = ind_agr_title,
        x = "Date",
        y = "All employees (thousands)") +
   plot_theme
 
 ```
 
-### Source
+#### Source
 
-After each graphic, I want to print where it is from <http://rmarkdown.rstudio.com>.
-Note: This snapshot is a subindustry of Transportation and Warehousing (Naics 48-49). It does not include transportation jobs.
+# Warehouse work profile
 
-# Establishments
+We can also look at the job characteristics of warehouse work. For these, I continue to focus on the common occupations in the selected industries.
 
-# Work Hours
+```{r load_asec, include=FALSE}
+## Get occupational stats from IPUMS CPS
+# Use basic CPS data for the month of December
+#   Note: These files need to be regularly updated
+#   Note : I have to add ".." because here() stops at Rproj - figure out how to fix
+cps_data_file <- here("..", "..", "..", "..",
+                      "data", "supp_data", "ipums", "cps", "cps_00005.dat")
+cps_ddi_file <- here("..", "..", "..", "..",
+                     "data", "supp_data", "ipums", "cps", "cps_00005.xml")
+cps_ddi <- read_ipums_ddi(cps_ddi_file) 
+cps_data <- read_ipums_micro(cps_ddi_file, data_file = cps_data_file)
 
-### Citations
-Gutelius and Theodore (2019) - fill these out
-De Lara (2013)
+# CPS max year
+cps_max_year <- format(max(cps_data$YEAR), big.mark ="")
+
+# Create occupation factor variables
+cps_data <- cps_data %>%
+  mutate(OCC_factor = as_factor(OCC),
+         INDly_factor = as_factor(INDLY),
+         OCCly_factor = as_factor(OCCLY))
+
+cps_data <- merge(cps_data, ind_lab[, 1:2], 
+                  by = "IND")
+
+
+```
+
+```{r hours, include=FALSE}
+## Earnings profile
+# Annual earnings, by occupation
+# Warehouse occupations
+wh_hours <- cps_data %>%
+  filter(WORKLY == 02 &
+           CLASSWLY == 22 &
+           OCCly_factor %in% c("9600", "9620", "0160", 
+                             "9640", "5610", "5620") &
+           # Only in warehousing, mail order, electronic shopping
+           INDly_factor %in% c("6390", "5592", "5590")) %>%
+  group_by(FULLPART) %>%
+  summarize(emp_tot = sum(ASECWT))
+
+wh_hours$emp_share <- round((wh_hours$emp_tot / sum(wh_hours$emp_tot)) * 100, 2)
+
+# Note that the number of employees in the industry is greater when we use ASEC weights
+
+```
+
+## Full-time vs. part-time
+
+The work is mostly full-time. About `r wh_hours$emp_share[wh_hours$FULLPART == 1]`% of employees are engaged in full-time work.
+
+```{r wages, include=FALSE}
+## Earnings profile
+# Annual earnings, by occupation
+# Warehouse occupations
+wh_earn <- cps_data %>%
+  filter(WORKLY == 02 &
+           CLASSWLY == 22 &
+           OCCly_factor %in% c("9600", "9620", "0160", 
+                             "9640", "5610", "5620") &
+           # Only in warehousing, mail order, electronic shopping
+           INDly_factor %in% c("6390", "5592", "5590")) %>%
+  group_by(FULLPART) %>%
+  summarize(avg_earn = weighted.mean(INCWAGE, ASECWT))
+
+# Hourly wages for those paid by the hour, by occupation
+# Warehouse occupations (including PT)
+wh_wage <- round(as.numeric(cps_data %>%
+  filter(EMPSTAT == 10 & 
+           CLASSWKR %in% c(20, 21, 22, 23) &
+           PAIDHOUR == 2 &
+           OCC_factor %in% c("9600", "9620", "0160", 
+                             "9640", "5610", "5620") &
+           # Only in warehousing, mail order, electronic shopping
+           IND %in% c("6390", "5592", "5590")) %>%
+  summarize(avg_hrwage = weighted.mean(HOURWAGE, EARNWT))), 2)
+
+
+```
+
+## Wages
+
+A full-time warehouse worker made, on average, about $`r wh_earn$avg_earn[wh_earn$FULLPART == 1]` last year. This number was $`r wh_earn$avg_earn[wh_earn$FULLPART == 2]`  for part-time workers. 
+
+The average hourly wage for hourly warehouse workers was $`r wh_wage`.
+
+# Warehouse worker profile
+
+## Sex
+```{r sex, echo = FALSE}
+whocc_sum <- cps_data %>%
+  filter(EMPSTAT == 10 & 
+           CLASSWKR %in% c(20, 21, 22, 23) &
+           OCC_factor %in% c("9600", "9620", "0160", 
+                             "9640", "5610", "5620") &
+           # Only in warehousing, mail order, electronic shopping
+           IND %in% c("6390", "5592", "5590")) %>%
+summarize(emp_tot = sum(ASECWT))
+
+wh_sex <- cps_data %>%
+  filter(EMPSTAT == 10 & 
+           CLASSWKR %in% c(20, 21, 22, 23) &
+            OCC_factor %in% c("9600", "9620", "0160", 
+                             "9640", "5610", "5620") &
+           # Only in warehousing, mail order, electronic shopping
+           IND %in% c("6390", "5592", "5590")) %>%
+  group_by(SEX) %>%
+  summarize(sex_tot = sum(ASECWT),
+            sex_pct = round((sex_tot / whocc_sum$emp_tot)*100), 2)
+```
+Warehouse jobs are mostly male: about `r wh_sex$sex_pct[wh_sex$SEX == 1]`% are held by men.
+
+## Age 
+```{r age, echo = FALSE}
+
+cps_data$ages <- cut(cps_data$AGE, 
+                   breaks=c(-Inf, 19, 24, 54, 64, Inf), 
+                   labels=c("16 to 19", "20 to 24", "25-54",
+                            "55 to 64", "65 years and over"))
+cps_data %>%
+  filter(EMPSTAT == 10 & 
+           CLASSWKR %in% c(20, 21, 22, 23) &
+                  OCC_factor %in% c("9600", "9620", "0160", 
+                             "9640", "5610", "5620") &
+           # Only in warehousing, mail order, electronic shopping
+           IND %in% c("6390", "5592", "5590")) %>%
+  group_by(ages) %>%
+  summarize(ages_tot = sum(ASECWT),
+            ages_pct = ages_tot / whocc_sum$emp_tot) %>%
+  kable(col.names = c("Age Group", "Total Employment", 
+                      "Share of Employment"),
+        # format.args = list(big.mark = ","),
+        digits = 2,
+        caption = "Age profile of common warehousing occupations") %>%
+  kable_styling()
+```
+
+## Race
+```{r race, include = FALSE}
+
+# Create variable for eth
+cps_data$eth <- NA
+cps_data$eth[cps_data$RACE == 100 & cps_data$HISPAN == 000] <- "Non-Hispanic White"
+cps_data$eth[cps_data$RACE == 200 & cps_data$HISPAN == 000] <- "Non-Hispanic Black"
+cps_data$eth[cps_data$HISPAN > 000] <- "Hispanic"
+cps_data$eth[cps_data$RACE != 200 & cps_data$RACE != 100 & cps_data$HISPAN == 000] <- "All Other"
+
+cps_data %>%
+group_by(eth) %>%
+  summarize(pop = sum(ASECWT))
+cps_data %>%
+  summarize(pop = sum(ASECWT))
+
+# Working population race baseline
+us_pop <- cps_data %>%
+  filter(EMPSTAT == 10) %>%
+  summarize(pop = sum(ASECWT))
+cps_data %>%
+  filter(EMPSTAT == 10) %>%
+  group_by(eth) %>%
+  summarize(pop = sum(ASECWT),
+            pop_share = pop / us_pop$pop)
+
+whocc_eth <- cps_data %>%
+  filter(EMPSTAT == 10 & 
+           CLASSWKR %in% c(20, 21, 22, 23) &
+            OCC_factor %in% c("9600", "9620", "0160", 
+                             "9640", "5610", "5620") &
+           # Only in warehousing, mail order, electronic shopping
+           IND %in% c("6390", "5592", "5590")) %>%
+  group_by(eth) %>%
+  summarize(eth_tot = sum(ASECWT),
+            eth_pct = eth_tot / whocc_sum$emp_tot)
+# Add y position for pie chart
+whocc_eth <- whocc_eth %>%
+  arrange(desc(eth)) %>%
+  mutate(lab.ypos = cumsum(eth_pct*100) - 0.5*eth_pct*100)
+
+blank_theme <- theme_minimal()+
+  theme(
+    axis.title.x = element_blank(),
+    axis.title.y = element_blank(),
+    panel.border = element_blank(),
+    panel.grid=element_blank(),
+    axis.ticks = element_blank(),
+    plot.title=element_text(size=14, face="bold")
+  )
+```
+
+```{r race_plot, echo = FALSE}
+ggplot(whocc_eth, aes(x=2, y=eth_pct*100, fill=eth))+
+  geom_bar( stat = "identity") +
+  coord_polar(theta = "y", start=0) +
+  scale_fill_brewer(palette="GnBu") +
+  blank_theme +
+  theme(axis.text.x=element_blank()) +
+  labs(title = "Racial/Ethnic Profile of Those Working in Warehousing Occupations", 
+       fill = "Race/Ethnicity") +
+  geom_text(aes(y = lab.ypos, label = scales::percent(eth_pct)), color = "black")  +
+  theme_void()+
+  xlim(0.5, 2.5)
+
+```
+
+## Education
+```{r edu, include = FALSE}
+# Create variable for educational attainment
+cps_data$ed <- NA
+cps_data$ed[cps_data$EDUC <= 071] <- "High school dropout"
+cps_data$ed[cps_data$EDUC == 073] <- "High school diploma"
+cps_data$ed[cps_data$EDUC >= 080 & cps_data$EDUC < 111] <- "Some College"
+cps_data$ed[cps_data$EDUC == 111] <- "College Graduate"
+cps_data$ed[cps_data$EDUC > 111] <- "Post-College Degree"
+cps_data$ed <- as.factor(cps_data$ed)
+cps_data$ed <- factor(cps_data$ed, levels = c("High school dropout", "High school diploma", "Some College",
+                                              "College Graduate", "Post-College Degree"))
+
+# Working population eudcation baseline
+us_pop <- cps_data %>%
+  filter(EMPSTAT == 10) %>%
+  summarize(pop = sum(ASECWT))
+cps_data %>%
+  filter(EMPSTAT == 10) %>%
+  group_by(ed) %>%
+  summarize(pop = sum(ASECWT),
+            pop_share = pop / us_pop$pop)
+
+# Educational attainment in warehousing occupations
+whocc_ed <- cps_data %>%
+  filter(EMPSTAT == 10 & 
+           CLASSWKR %in% c(20, 21, 22, 23) &
+           OCC_factor %in% c("9600", "9620", "0160", 
+                             "9640", "5610", "5620") &
+           # Only in warehousing, mail order, electronic shopping
+           IND %in% c("6390", "5592", "5590")) %>%
+  group_by(ed) %>%
+  summarize(emp_share = sum(ASECWT),
+            emp_pct = emp_share / whocc_sum$emp_tot)
+# Add y position for pie chart
+whocc_ed <- whocc_ed %>%
+  arrange(desc(ed)) %>%
+  mutate(lab.ypos = cumsum(emp_pct*100) - 0.5*emp_pct*100)
+```
+
+```{r edu_plot, echo = FALSE}
+ggplot(whocc_ed, aes(x=2, y=emp_pct*100, fill=ed))+
+  geom_bar( stat = "identity") +
+  coord_polar(theta = "y", start=0) +
+  scale_fill_brewer(palette="Reds") +
+  blank_theme +
+  theme(axis.text.x=element_blank()) +
+  labs(title = "Educational Profile of Those Working in Warehousing Occupations", 
+       fill = "Educational Attainment") +
+  geom_text(aes(y = lab.ypos, label = scales::percent(emp_pct)), color = "black")  +
+  theme_void()+
+  xlim(0.5, 2.5)
+
+
+```
+# To dos
+
+There are more topics to investigate, including:
+
+* Establishments
+  * Number
+  * Location
+* Work hours
+
+We can compare these stats to Sigma's workforce.
+
+<!-- ### Citations -->
+<!-- Gutelius and Theodore (2019) - fill these out -->
+<!-- De Lara (2013) -->
