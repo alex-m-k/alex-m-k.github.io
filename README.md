@@ -1,1 +1,1 @@
-# warehosue_indicators
+# warehouse_indicators
