@@ -2,8 +2,13 @@
 title: "U.S. Warehouse Industry and Occupation Indicators"
 # author: Alex K
 # date: 2/4/2020
-output: html_document
+output: 
+  html_document:
+    keep_md: TRUE
+    
 # latex_engine: xelatex
+# NOTE: This needs to be fixed so that it doesn't always pull BLS data but only pulls if the most recent data is not up-to-date.
+## As a matter of fact, I should create a code that checks to see if more recent data is available for all measures and only pulls if it is.
 ---
 
 ```{r setup, include=FALSE}
@@ -115,7 +120,7 @@ The CPS will allow us to look at the industry-occupation intersection for indivi
 
 Open questions:
 
-* On the CPS, does industry pertain to the establishment or headquarters of where the employee works? Likely, the answer is ambiguous. The ambiguity is important because we don't know if the warehouses of retailers, like Sigma, will be classified as belonging to the warehouse or retail industry. It is possible that the OES survey might be less ambiguous. The challenge with this survey is that we can't look at individual worker characteristics, and I am not sure if we can get historical data. One alternative would be to use the CPS for worker information (e.g., demographics) and for historical trends and the OES for a snapshot of employment in  the past year.
+* On the CPS, does industry pertain to the establishment or headquarters of where the employee works? Likely, the answer is ambiguous. The ambiguity is important because we don't know if the warehouses of retailers, like Sigma, will be classified as belonging to the warehouse or retail industry. It is possible that the OES or QCEW surveys might be less ambiguous. The challenge with this survey is that we can't look at individual worker characteristics, and I am not sure if we can get historical data. One alternative would be to use the CPS for worker information (e.g., demographics) and for historical trends and the OES or QCEW for a snapshot of employment in  the past year.
 
 ## Most common occupations in the warehousing and storage industry (NAICS 493)
 
@@ -139,13 +144,15 @@ cps_data %>%
 
 ```
 #### Note
-SOURCE. They do not include  self-employed, government, or agricultural workers. December 2019?
+SOURCE. They do not include self-employed, government, or agricultural workers. 
 
-Two questions arise.
+Three questions arise.
 
 * One occupation that Sigma considers a warehouse role, machine feeders and offbearers, is missing from this list. I am electing to exclude it from our list of warehousing occupations, because the CPS shows that it is not very common in the warehousing industry. 
 
 * One managerial role makes the top. I believe we should include it because there are quite a few managers in the warehouses we visited, and many of them experience challenges similar to those of workers. If, however, we want to distinguish between workers and management (we can definitely contrast hourly vs. salaried employees), we can keep managers out.
+
+* I am using data from December. This means the numbers might be larger because of seasonal workers. Does it make sense to create annual average? 
 
 ## Selection of occupations
 
@@ -289,7 +296,7 @@ ggplot(rbind(occ_emp_tot, whocc_emp_tot),
 ```
 
 #### Note
-SOURCE. They do not include  self-employed, government, or agricultural workers.
+SOURCE. They do not include self-employed, government, or agricultural workers.
 
 ## Annual change in warehouse occupation employment
 
